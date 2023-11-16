@@ -1,11 +1,9 @@
 import streamlit as st
 import pandas as pd
-import openai
+from openai import OpenAI
 import os
 import random
 import time
-
-openai.api_key = os.getenv("OPENAI_API_KEY")
 
 LOG = "questions.log"
 
@@ -40,17 +38,18 @@ def ask_question(question, system="You are a data scientist."):
     """
     Ask a question and return the answer.
     """ 
+    client = OpenAI()
     messages = [
         {"role": "system", "content": system},
         {"role": "user", "content": question}
         ]
-    response = openai.ChatCompletion.create(
+    response = client.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=messages,
         temperature=0,
         stop = ["plt.show()", "st.pyplot(fig)"]
         )
-    answer = response.choices[0]["message"]["content"]
+    answer = response.choices[0].message.content
     return answer
 
 def ask_question_with_retry(question, system="You are a data scientist.", retries=1):

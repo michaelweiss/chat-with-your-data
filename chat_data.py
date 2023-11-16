@@ -7,6 +7,8 @@ import time
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
+LOG = "questions.log"
+
 @st.cache_data()
 def load_data(file):
     """
@@ -14,6 +16,15 @@ def load_data(file):
     """
     df = pd.read_csv(file, encoding="utf-8", delimiter=",")
     return pre_process(df)
+
+def add_to_log(question):
+    """
+    Log the question
+    """
+    with open(LOG, "a") as f:
+        f.write(time.strftime("%Y-%m-%d %H:%M:%S") + " ")
+        f.write(question + "\n") 
+        f.flush()
 
 def pre_process(df):
     """
@@ -23,8 +34,6 @@ def pre_process(df):
     for col in df.columns:
         if col.startswith("Unnamed"):
             df = df.drop(col, axis=1)
-    # Replace NaN with empty string
-    # df = df.fillna("")
     return df
 
 def ask_question(question, system="You are a data scientist."):
@@ -79,17 +88,21 @@ def describe_dataframe(df):
     description = []
     # List the columns of the dataframe
     description.append(f"The dataframe df has the following columns: {', '.join(df.columns)}.")
-    # For each column with a categorical variable, list the unique values
-    if cols := check_categorical_variables(df):
-        return f"ERROR: All values in a categorical variable must be strings: {', '.join(cols)}." 
-    for column in df.columns:
-        if df[column].dtype == "object" and len(df[column].unique()) < 10:
-            description.append(f"Column {column} has the following levels: {', '.join(df[column].dropna().unique())}.")
-        elif df[column].dtype == "int64" or df[column].dtype == "float64":
-            description.append(f"Column {column} is a numerical variable.")
-    description.append("Add a title to the plot.")
-    description.append("Label the x and y axes of the plot.")
-    description.append("Do not generate a new dataframe.")
+    try:
+        # For each column with a categorical variable, list the unique values
+        if cols := check_categorical_variables(df):
+            return f"ERROR: All values in a categorical variable must be strings: {', '.join(cols)}." 
+        for column in df.columns:
+            if df[column].dtype == "object" and len(df[column].unique()) < 10:
+                description.append(f"Column {column} has the following levels: {', '.join(df[column].dropna().unique())}.")
+            elif df[column].dtype == "int64" or df[column].dtype == "float64":
+                description.append(f"Column {column} is a numerical variable.")
+        description.append("Add a title to the plot.")
+        description.append("Label the x and y axes of the plot.")
+        description.append("Do not generate a new dataframe.")
+    except Exception as e:
+        add_to_log("Error: Unexpected error with the dataset.")
+        return "Unexpected error with the dataset."
     return "\n".join(description)
 
 def check_categorical_variables(df):
@@ -176,6 +189,8 @@ if uploaded_file:
     if question:
         with st.chat_message("user"):
             st.markdown(question)
+
+        add_to_log(f"Question: {question}")
             
         description = describe_dataframe(df)
         if "ERROR" in description:
@@ -186,10 +201,19 @@ if uploaded_file:
             with st.spinner("Thinking..."):
                 answer = ask_question_with_retry(prepare_question(description, question, initial_code))
             with st.chat_message("assistant"):
-                script = initial_code + answer + "st.pyplot(fig)"
-                exec(script)
-                st.markdown("Here is the code used to create the plot:")
-                st.code(script, language="python")
+                if answer:
+                    script = initial_code + answer + "st.pyplot(fig)"
+                    try:
+                        exec(script)
+                        st.markdown("Here is the code used to create the plot:")
+                        st.code(script, language="python")
+                    except Exception as e:
+                        add_to_log("Error: Could not generate code to answer this question.")
+                        st.info("I could not generate code to answer this question. " +
+                            "Try asking it in a different way.")
+                else:
+                    add_to_log("Error: Request timed out.")
+                    st.markdown("Request timed out. Please wait and resubmit your question.")
 else:
     with st.chat_message("assistant"):
         st.markdown("Upload a dataset to get started.")
